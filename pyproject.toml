@@ -3,11 +3,11 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "swarm"
-version = "0.1.0"
-description = "A lightweight, stateless multi-agent orchestration framework"
+name = "agentsys"
+version = "0.7.0"
+description = "An educational multi-agent orchestration framework"
 readme = "README.md"
-authors = [{ name = "OpenAI Solutions" }]
+authors = [{ name = "lifsys" }]
 license = { file = "LICENSE" }
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -16,28 +16,34 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
 ]
-keywords = ["ai", "agents", "orchestration", "openai"]
+keywords = ["ai", "agents", "orchestration", "multi-agent"]
 dependencies = [
-    "numpy",
-    "openai>=1.33.0",
-    "pytest",
-    "requests",
-    "tqdm",
-    "pre-commit",
-    "instructor",
+    "openai>=1.0.0",
+    "pydantic>=2.0.0",
+    "locksys>=0.1.0"
 ]
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-dev = ["black", "pytest", "pytest-cov"]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "pytest-asyncio",
+    "black"
+]
+
+[project.urls]
+Homepage = "https://github.com/lifsys/agentsys"
+Issues = "https://github.com/lifsys/agentsys/issues"
 
 [tool.setuptools]
-packages = ["swarm"]
+packages = ["agentsys"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-v --cov=swarm"
+addopts = "-v --cov=agentsys"
 
 [tool.black]
 line-length = 88
