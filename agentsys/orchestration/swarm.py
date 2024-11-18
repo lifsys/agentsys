@@ -1,33 +1,35 @@
-# Standard library imports
+"""
+Core Swarm orchestration implementation.
+"""
+
 import copy
 import json
 from collections import defaultdict
-from typing import List, Callable, Union
+from typing import List, Dict, Any, Generator, Union
 
-# Package/library imports
 from openai import OpenAI
 
-
-# Local imports
-from .util import function_to_json, debug_print, merge_chunk
-from .types import (
+from ..types import (
     Agent,
-    AgentFunction,
     ChatCompletionMessage,
     ChatCompletionMessageToolCall,
     Function,
     Response,
-    Result,
 )
+from ..util import function_to_json, debug_print, merge_chunk
+from .tool_handler import ToolHandler
 
 __CTX_VARS_NAME__ = "context_variables"
 
-
 class Swarm:
+    """Main orchestration class for managing agent interactions."""
+    
     def __init__(self, client=None):
+        """Initialize Swarm with optional OpenAI client."""
         if not client:
             client = OpenAI()
         self.client = client
+        self.tool_handler = ToolHandler()
 
     def get_chat_completion(
         self,
@@ -38,6 +40,7 @@ class Swarm:
         stream: bool,
         debug: bool,
     ) -> ChatCompletionMessage:
+        """Get chat completion from the model."""
         context_variables = defaultdict(str, context_variables)
         instructions = (
             agent.instructions(context_variables)
@@ -68,74 +71,6 @@ class Swarm:
 
         return self.client.chat.completions.create(**create_params)
 
-    def handle_function_result(self, result, debug) -> Result:
-        match result:
-            case Result() as result:
-                return result
-
-            case Agent() as agent:
-                return Result(
-                    value=json.dumps({"assistant": agent.name}),
-                    agent=agent,
-                )
-            case _:
-                try:
-                    return Result(value=str(result))
-                except Exception as e:
-                    error_message = f"Failed to cast response to string: {result}. Make sure agent functions return a string or Result object. Error: {str(e)}"
-                    debug_print(debug, error_message)
-                    raise TypeError(error_message)
-
-    def handle_tool_calls(
-        self,
-        tool_calls: List[ChatCompletionMessageToolCall],
-        functions: List[AgentFunction],
-        context_variables: dict,
-        debug: bool,
-    ) -> Response:
-        function_map = {f.__name__: f for f in functions}
-        partial_response = Response(
-            messages=[], agent=None, context_variables={})
-
-        for tool_call in tool_calls:
-            name = tool_call.function.name
-            # handle missing tool case, skip to next tool
-            if name not in function_map:
-                debug_print(debug, f"Tool {name} not found in function map.")
-                partial_response.messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "tool_name": name,
-                        "content": f"Error: Tool {name} not found.",
-                    }
-                )
-                continue
-            args = json.loads(tool_call.function.arguments)
-            debug_print(
-                debug, f"Processing tool call: {name} with arguments {args}")
-
-            func = function_map[name]
-            # pass context_variables to agent functions
-            if __CTX_VARS_NAME__ in func.__code__.co_varnames:
-                args[__CTX_VARS_NAME__] = context_variables
-            raw_result = function_map[name](**args)
-
-            result: Result = self.handle_function_result(raw_result, debug)
-            partial_response.messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "tool_name": name,
-                    "content": result.value,
-                }
-            )
-            partial_response.context_variables.update(result.context_variables)
-            if result.agent:
-                partial_response.agent = result.agent
-
-        return partial_response
-
     def run_and_stream(
         self,
         agent: Agent,
@@ -145,14 +80,14 @@ class Swarm:
         debug: bool = False,
         max_turns: int = float("inf"),
         execute_tools: bool = True,
-    ):
+    ) -> Generator[Dict[str, Any], None, None]:
+        """Run the agent with streaming responses."""
         active_agent = agent
         context_variables = copy.deepcopy(context_variables)
         history = copy.deepcopy(messages)
         init_len = len(messages)
 
         while len(history) - init_len < max_turns:
-
             message = {
                 "content": "",
                 "sender": agent.name,
@@ -167,7 +102,6 @@ class Swarm:
                 ),
             }
 
-            # get completion with current history, agent
             completion = self.get_chat_completion(
                 agent=active_agent,
                 history=history,
@@ -188,8 +122,7 @@ class Swarm:
                 merge_chunk(message, delta)
             yield {"delim": "end"}
 
-            message["tool_calls"] = list(
-                message.get("tool_calls", {}).values())
+            message["tool_calls"] = list(message.get("tool_calls", {}).values())
             if not message["tool_calls"]:
                 message["tool_calls"] = None
             debug_print(debug, "Received completion:", message)
@@ -211,8 +144,7 @@ class Swarm:
                 )
                 tool_calls.append(tool_call_object)
 
-            # handle function calls, updating context_variables, and switching agents
-            partial_response = self.handle_tool_calls(
+            partial_response = self.tool_handler.handle_tool_calls(
                 tool_calls, active_agent.functions, context_variables, debug
             )
             history.extend(partial_response.messages)
@@ -238,7 +170,8 @@ class Swarm:
         debug: bool = False,
         max_turns: int = float("inf"),
         execute_tools: bool = True,
-    ) -> Response:
+    ) -> Union[Response, Generator[Dict[str, Any], None, None]]:
+        """Run the agent with or without streaming."""
         if stream:
             return self.run_and_stream(
                 agent=agent,
@@ -249,14 +182,13 @@ class Swarm:
                 max_turns=max_turns,
                 execute_tools=execute_tools,
             )
+            
         active_agent = agent
         context_variables = copy.deepcopy(context_variables)
         history = copy.deepcopy(messages)
         init_len = len(messages)
 
         while len(history) - init_len < max_turns and active_agent:
-
-            # get completion with current history, agent
             completion = self.get_chat_completion(
                 agent=active_agent,
                 history=history,
@@ -270,14 +202,13 @@ class Swarm:
             message.sender = active_agent.name
             history.append(
                 json.loads(message.model_dump_json())
-            )  # to avoid OpenAI types (?)
+            )
 
             if not message.tool_calls or not execute_tools:
                 debug_print(debug, "Ending turn.")
                 break
 
-            # handle function calls, updating context_variables, and switching agents
-            partial_response = self.handle_tool_calls(
+            partial_response = self.tool_handler.handle_tool_calls(
                 message.tool_calls, active_agent.functions, context_variables, debug
             )
             history.extend(partial_response.messages)

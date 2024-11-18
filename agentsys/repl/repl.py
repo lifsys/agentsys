@@ -1,11 +1,13 @@
 import json
 
 from swarm import Swarm
+from swarm import Response  # Import Response class
 
 
 def process_and_print_streaming_response(response):
     content = ""
     last_sender = ""
+    final_response = None
 
     for chunk in response:
         if "sender" in chunk:
@@ -30,8 +32,11 @@ def process_and_print_streaming_response(response):
             print()  # End of response message
             content = ""
 
-        if "response" in chunk:
-            return chunk["response"]
+        if "messages" in chunk:
+            final_response = Response(messages=chunk["messages"])
+            break
+
+    return final_response or Response(messages=[])
 
 
 def pretty_print_messages(messages) -> None:
@@ -61,7 +66,7 @@ def run_demo_loop(
     starting_agent, context_variables=None, stream=False, debug=False
 ) -> None:
     client = Swarm()
-    print("Starting Swarm CLI 🐝")
+    print("Starting Swarm CLI ")
 
     messages = []
     agent = starting_agent

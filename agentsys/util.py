@@ -1,5 +1,6 @@
 import inspect
 from datetime import datetime
+from typing import get_origin, get_args, List, Dict, Any, Optional, Union
 
 
 def debug_print(debug: bool, *args: str) -> None:
@@ -28,6 +29,37 @@ def merge_chunk(final_response: dict, delta: dict) -> None:
         merge_fields(final_response["tool_calls"][index], tool_calls[0])
 
 
+def get_type_info(annotation):
+    """Get OpenAI-compatible type information from a type annotation."""
+    type_map = {
+        str: "string",
+        int: "integer",
+        float: "number",
+        bool: "boolean",
+        list: "array",
+        dict: "object",
+        type(None): "null",
+    }
+
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+
+    if origin is None:
+        return {"type": type_map.get(annotation, "string")}
+    
+    if origin is list:
+        return {"type": "array", "items": get_type_info(args[0])}
+    elif origin is dict:
+        return {"type": "object"}
+    elif origin is Union:
+        # Handle Optional[T] which is Union[T, None]
+        if type(None) in args:
+            non_none_type = next(arg for arg in args if arg is not type(None))
+            return get_type_info(non_none_type)
+    
+    return {"type": "string"}
+
+
 def function_to_json(func) -> dict:
     """
     Converts a Python function into a JSON-serializable dictionary
@@ -40,16 +72,6 @@ def function_to_json(func) -> dict:
     Returns:
         A dictionary representing the function's signature in JSON format.
     """
-    type_map = {
-        str: "string",
-        int: "integer",
-        float: "number",
-        bool: "boolean",
-        list: "array",
-        dict: "object",
-        type(None): "null",
-    }
-
     try:
         signature = inspect.signature(func)
     except ValueError as e:
@@ -59,18 +81,14 @@ def function_to_json(func) -> dict:
 
     parameters = {}
     for param in signature.parameters.values():
-        try:
-            param_type = type_map.get(param.annotation, "string")
-        except KeyError as e:
-            raise KeyError(
-                f"Unknown type annotation {param.annotation} for parameter {param.name}: {str(e)}"
-            )
-        parameters[param.name] = {"type": param_type}
+        if param.name == "context_variables":
+            continue
+        parameters[param.name] = get_type_info(param.annotation)
 
     required = [
         param.name
         for param in signature.parameters.values()
-        if param.default == inspect._empty
+        if param.default == inspect._empty and param.name != "context_variables"
     ]
 
     return {

@@ -1,3 +1,44 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "swarm"
+version = "0.1.0"
+description = "A lightweight, stateless multi-agent orchestration framework"
+readme = "README.md"
+authors = [{ name = "OpenAI Solutions" }]
+license = { file = "LICENSE" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+]
+keywords = ["ai", "agents", "orchestration", "openai"]
+dependencies = [
+    "numpy",
+    "openai>=1.33.0",
+    "pytest",
+    "requests",
+    "tqdm",
+    "pre-commit",
+    "instructor",
+]
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+dev = ["black", "pytest", "pytest-cov"]
+
+[tool.setuptools]
+packages = ["swarm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=swarm"
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
